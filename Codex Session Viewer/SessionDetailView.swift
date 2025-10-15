@@ -74,12 +74,12 @@ private struct SessionDetailView: View {
     }
 
     private var sessionHeader: some View {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(detail.summary.title)
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                    Text(headerFormatter.string(from: detail.summary.timestamp))
-                        .font(.callout)
+        VStack(alignment: .leading, spacing: 4) {
+            Text(detail.summary.title)
+                .font(.title2)
+                .fontWeight(.semibold)
+            Text(headerFormatter.string(from: detail.summary.timestamp))
+                .font(.callout)
                 .foregroundStyle(.secondary)
             if let subtitle = detail.summary.subtitle {
                 Text(subtitle)
