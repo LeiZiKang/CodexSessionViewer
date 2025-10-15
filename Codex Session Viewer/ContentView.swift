@@ -6,9 +6,11 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @StateObject private var viewModel = SessionViewModel()
+    @State private var isFolderImporterPresented = false
 
     private var sessionsForSelectedMonth: [SessionSummary] {
         guard let id = viewModel.selectedMonthID else { return [] }
@@ -23,31 +25,61 @@ struct ContentView: View {
             }
             .navigationTitle("Months")
             .listStyle(.sidebar)
-        } content: {
-            let selectionBinding = Binding<SessionSummary.ID?>(
-                get: { viewModel.selectedSessionID },
-                set: { newValue in viewModel.selectSession(id: newValue) }
-            )
-            List(sessionsForSelectedMonth, selection: selectionBinding) { session in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(session.title)
-                        .font(.headline)
-                    if let subtitle = session.subtitle {
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
+            .overlay {
+                if viewModel.needsFolderAccess {
+                    FolderAccessPromptView(
+                        suggestedPath: suggestedPath,
+                        action: { isFolderImporterPresented = true }
+                    )
+                    .padding()
                 }
-                .tag(session.id)
             }
-            .navigationTitle("Sessions")
-            .listStyle(.inset)
+        } content: {
+            if viewModel.needsFolderAccess {
+                FolderAccessPromptView(
+                    suggestedPath: suggestedPath,
+                    action: { isFolderImporterPresented = true }
+                )
+            } else {
+                let selectionBinding = Binding<SessionSummary.ID?>(
+                    get: { viewModel.selectedSessionID },
+                    set: { newValue in viewModel.selectSession(id: newValue) }
+                )
+                List(sessionsForSelectedMonth, selection: selectionBinding) { session in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(session.title)
+                            .font(.headline)
+                        if let subtitle = session.subtitle {
+                            Text(subtitle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    .tag(session.id)
+                }
+                .navigationTitle("Sessions")
+                .listStyle(.inset)
+            }
         } detail: {
-            SessionDetailContainer(viewModel: viewModel)
+            if viewModel.needsFolderAccess {
+                FolderAccessPromptView(
+                    suggestedPath: suggestedPath,
+                    action: { isFolderImporterPresented = true }
+                )
+            } else {
+                SessionDetailContainer(viewModel: viewModel)
+            }
         }
         .task {
             viewModel.load()
+        }
+        .onChange(of: viewModel.needsFolderAccess) { needsAccess in
+            if needsAccess {
+                isFolderImporterPresented = true
+            } else {
+                isFolderImporterPresented = false
+            }
         }
         .onChange(of: viewModel.selectedMonthID) { newValue in
             guard let id = newValue else {
@@ -66,6 +98,11 @@ struct ContentView: View {
                     .padding()
             }
         }
+        .fileImporter(isPresented: $isFolderImporterPresented,
+                      allowedContentTypes: [.folder],
+                      allowsMultipleSelection: false) { result in
+            viewModel.handleFolderImporterResult(result)
+        }
         .alert("Unable to load sessions", isPresented: Binding<Bool>(
             get: { viewModel.errorMessage != nil },
             set: { _ in viewModel.errorMessage = nil }
@@ -75,8 +112,42 @@ struct ContentView: View {
             Text(viewModel.errorMessage ?? "")
         }
     }
+
+    private var suggestedPath: String {
+        if let url = viewModel.suggestedFolder {
+            return url.path
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".codex/session")
+            .path
+    }
 }
 
 #Preview {
     ContentView()
+}
+
+private struct FolderAccessPromptView: View {
+    let suggestedPath: String
+    let action: () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "folder.badge.questionmark")
+                .font(.largeTitle)
+            Text("Grant Access to Sessions")
+                .font(.headline)
+            Text("Allow the app to read Codex session archives located at \(suggestedPath).")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .textSelection(.enabled)
+            Button("Grant Access") {
+                action()
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
 }

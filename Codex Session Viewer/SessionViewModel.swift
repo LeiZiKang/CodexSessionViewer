@@ -22,29 +22,29 @@ final class SessionViewModel: ObservableObject {
     @Published var selectedDetail: SessionDetail?
     @Published var isLoading = false
     @Published var errorMessage: String?
+    @Published var needsFolderAccess = false
+    @Published var suggestedFolder: URL?
 
-    private let repository: SessionRepository
-
-    init(repository: SessionRepository = SessionRepository()) {
-        self.repository = repository
-    }
+    private let accessController = SessionAccessController()
+    private var repository: SessionRepository?
 
     func load() {
         guard !isLoading else { return }
-        isLoading = true
         errorMessage = nil
 
-        Task {
-            do {
-                let months = try await loadMonths()
-                self.months = months
-                if selectedMonthID == nil {
-                    selectedMonthID = months.first?.id
-                }
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-            isLoading = false
+        switch accessController.prepareAccess() {
+        case .ready(let directories):
+            needsFolderAccess = false
+            suggestedFolder = nil
+            repository = SessionRepository(directories: directories)
+            fetchMonths()
+        case .needsPermission(let suggested):
+            needsFolderAccess = true
+            suggestedFolder = suggested
+            months = []
+            selectedMonthID = nil
+            selectedSessionID = nil
+            selectedDetail = nil
         }
     }
 
@@ -62,12 +62,55 @@ final class SessionViewModel: ObservableObject {
         }
     }
 
-    private func loadMonths() async throws -> [SessionMonth] {
-        try repository.loadMonths()
+    func handleFolderImporterResult(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            do {
+                try accessController.storeBookmark(for: url)
+                needsFolderAccess = false
+                suggestedFolder = nil
+                load()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        case .failure(let error):
+            let nsError = error as NSError
+            if nsError.code == NSUserCancelledError {
+                return
+            }
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func fetchMonths() {
+        guard let repository else { return }
+        guard !isLoading else { return }
+        isLoading = true
+
+        Task {
+            do {
+                let months = try repository.loadMonths()
+                await MainActor.run {
+                    self.months = months
+                    if selectedMonthID == nil {
+                        selectedMonthID = months.first?.id
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.errorMessage = error.localizedDescription
+                }
+            }
+            await MainActor.run {
+                self.isLoading = false
+            }
+        }
     }
 
     private func loadDetail(for summary: SessionSummary) async {
         do {
+            guard let repository else { return }
             let detail = try repository.loadDetail(for: summary)
             await MainActor.run {
                 selectedDetail = detail

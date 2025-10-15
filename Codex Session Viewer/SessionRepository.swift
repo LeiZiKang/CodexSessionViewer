@@ -39,20 +39,17 @@ final class SessionRepository {
         return formatter
     }()
 
-    init(fileManager: FileManager = .default) {
+    init(fileManager: FileManager = .default, directories: [URL]? = nil) {
         self.fileManager = fileManager
-        let home = fileManager.homeDirectoryForCurrentUser
-        // Support both `session` and `sessions` directories.
-        let primary = home.appendingPathComponent(".codex/session")
-        let fallback = home.appendingPathComponent(".codex/sessions")
-        var directories = [URL]()
-        if fileManager.fileExists(atPath: primary.path) {
-            directories.append(primary)
+        if let directories, !directories.isEmpty {
+            sessionDirectories = directories
+        } else {
+            let home = fileManager.homeDirectoryForCurrentUser
+            let base = home.appendingPathComponent(".codex")
+            let primary = base.appendingPathComponent("session")
+            let fallback = base.appendingPathComponent("sessions")
+            sessionDirectories = [primary, fallback]
         }
-        if fileManager.fileExists(atPath: fallback.path) {
-            directories.append(fallback)
-        }
-        sessionDirectories = directories
     }
 
     func loadMonths() throws -> [SessionMonth] {
