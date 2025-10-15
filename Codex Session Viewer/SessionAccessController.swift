@@ -13,9 +13,15 @@ final class SessionAccessController {
         case needsPermission(suggested: URL?)
     }
 
+    private struct BookmarkItem {
+        let url: URL
+        let data: Data
+        var path: String { url.path }
+    }
+
     private let fileManager: FileManager
     private let defaults: UserDefaults
-    private let bookmarkKey = "codex.session.viewer.bookmark"
+    private let bookmarkKey = "codex.session.viewer.bookmarks"
     private var startedSecurityScopedURLs: Set<URL> = []
 
     init(fileManager: FileManager = .default, defaults: UserDefaults = .standard) {
@@ -30,25 +36,8 @@ final class SessionAccessController {
     }
 
     func prepareAccess() -> AccessState {
-        var directories: [URL] = []
-
-        if let bookmarkData = defaults.data(forKey: bookmarkKey) {
-            var isStale = false
-            do {
-                let url = try URL(resolvingBookmarkData: bookmarkData,
-                                  options: [.withSecurityScope, .withoutUI],
-                                  relativeTo: nil,
-                                  bookmarkDataIsStale: &isStale)
-                if isStale {
-                    defaults.removeObject(forKey: bookmarkKey)
-                } else {
-                    startAccessingSecurityScope(for: url)
-                    directories.append(contentsOf: collectSessionDirectories(from: url))
-                }
-            } catch {
-                defaults.removeObject(forKey: bookmarkKey)
-            }
-        }
+        let bookmarkItems = resolveBookmarks(startAccess: true)
+        var directories = bookmarkItems.flatMap { collectSessionDirectories(from: $0.url) }
 
         let homeBase = fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
         directories.append(contentsOf: collectSessionDirectories(from: homeBase))
@@ -62,12 +51,77 @@ final class SessionAccessController {
     }
 
     func storeBookmark(for url: URL) throws {
-        let data = try url.bookmarkData(options: [.withSecurityScope],
-                                        includingResourceValuesForKeys: nil,
-                                        relativeTo: nil)
-        defaults.set(data, forKey: bookmarkKey)
+        try storeBookmarks(for: [url])
+    }
+
+    func storeBookmarks(for urls: [URL]) throws {
+        let sanitized = urls.map { $0.standardizedFileURL }
+        guard !sanitized.isEmpty else { return }
+
+        var existing = resolveBookmarks(startAccess: true)
+        var existingPaths = Set(existing.map { $0.path })
+        var bookmarkDatas = existing.map { $0.data }
+
+        for url in sanitized {
+            let path = url.path
+            if existingPaths.contains(path) {
+                startAccessingSecurityScope(for: url)
+                continue
+            }
+            let data = try url.bookmarkData(options: [.withSecurityScope],
+                                            includingResourceValuesForKeys: nil,
+                                            relativeTo: nil)
+            bookmarkDatas.append(data)
+            existingPaths.insert(path)
+            startAccessingSecurityScope(for: url)
+        }
+
+        defaults.set(bookmarkDatas, forKey: bookmarkKey)
         defaults.synchronize()
-        startAccessingSecurityScope(for: url)
+    }
+
+    // MARK: - Helpers
+
+    private func resolveBookmarks(startAccess: Bool) -> [BookmarkItem] {
+        let bookmarkDatas = defaults.array(forKey: bookmarkKey) as? [Data] ?? []
+        var resolved: [BookmarkItem] = []
+        var updatedDatas: [Data] = []
+        var hasChanges = false
+
+        for data in bookmarkDatas {
+            var isStale = false
+            do {
+                let url = try URL(resolvingBookmarkData: data,
+                                  options: [.withSecurityScope, .withoutUI],
+                                  relativeTo: nil,
+                                  bookmarkDataIsStale: &isStale)
+                if isStale {
+                    hasChanges = true
+                    continue
+                }
+                let standardized = url.standardizedFileURL
+                if startAccess {
+                    startAccessingSecurityScope(for: standardized)
+                }
+                resolved.append(BookmarkItem(url: standardized, data: data))
+                updatedDatas.append(data)
+            } catch {
+                hasChanges = true
+            }
+        }
+
+        if hasChanges {
+            defaults.set(updatedDatas, forKey: bookmarkKey)
+        }
+
+        var unique: [BookmarkItem] = []
+        var seen = Set<String>()
+        for item in resolved {
+            if seen.contains(item.path) { continue }
+            unique.append(item)
+            seen.insert(item.path)
+        }
+        return unique
     }
 
     private func startAccessingSecurityScope(for url: URL) {
@@ -118,10 +172,9 @@ final class SessionAccessController {
         var seen = Set<URL>()
         for url in urls {
             let standardized = url.standardizedFileURL
-            if !seen.contains(standardized) {
-                unique.append(standardized)
-                seen.insert(standardized)
-            }
+            if seen.contains(standardized) { continue }
+            unique.append(standardized)
+            seen.insert(standardized)
         }
         return unique
     }

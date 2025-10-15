@@ -100,7 +100,7 @@ struct ContentView: View {
         }
         .fileImporter(isPresented: $isFolderImporterPresented,
                       allowedContentTypes: [.folder],
-                      allowsMultipleSelection: false) { result in
+                      allowsMultipleSelection: true) { result in
             viewModel.handleFolderImporterResult(result)
         }
         .alert("Unable to load sessions", isPresented: Binding<Bool>(
@@ -110,6 +110,15 @@ struct ContentView: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text(viewModel.errorMessage ?? "")
+        }
+        .toolbar {
+            if !viewModel.needsFolderAccess {
+                Button {
+                    isFolderImporterPresented = true
+                } label: {
+                    Label("Add Folder", systemImage: "folder.badge.plus")
+                }
+            }
         }
     }
 

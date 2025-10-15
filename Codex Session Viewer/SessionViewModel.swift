@@ -27,25 +27,16 @@ final class SessionViewModel: ObservableObject {
 
     private let accessController = SessionAccessController()
     private var repository: SessionRepository?
+    private var pendingReload = false
 
     func load() {
-        guard !isLoading else { return }
-        errorMessage = nil
-
-        switch accessController.prepareAccess() {
-        case .ready(let directories):
-            needsFolderAccess = false
-            suggestedFolder = nil
-            repository = SessionRepository(directories: directories)
-            fetchMonths()
-        case .needsPermission(let suggested):
-            needsFolderAccess = true
-            suggestedFolder = suggested
-            months = []
-            selectedMonthID = nil
-            selectedSessionID = nil
-            selectedDetail = nil
+        if isLoading {
+            pendingReload = true
+            return
         }
+        pendingReload = false
+        errorMessage = nil
+        prepareAccessAndLoad()
     }
 
     func selectSession(id: SessionSummary.ID?) {
@@ -65,9 +56,10 @@ final class SessionViewModel: ObservableObject {
     func handleFolderImporterResult(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
-            guard let url = urls.first else { return }
+            let sanitized = urls.map { $0.standardizedFileURL }
+            guard !sanitized.isEmpty else { return }
             do {
-                try accessController.storeBookmark(for: url)
+                try accessController.storeBookmarks(for: sanitized)
                 needsFolderAccess = false
                 suggestedFolder = nil
                 load()
@@ -80,6 +72,23 @@ final class SessionViewModel: ObservableObject {
                 return
             }
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func prepareAccessAndLoad() {
+        switch accessController.prepareAccess() {
+        case .ready(let directories):
+            needsFolderAccess = false
+            suggestedFolder = nil
+            repository = SessionRepository(directories: directories)
+            fetchMonths()
+        case .needsPermission(let suggested):
+            needsFolderAccess = true
+            suggestedFolder = suggested
+            months = []
+            selectedMonthID = nil
+            selectedSessionID = nil
+            selectedDetail = nil
         }
     }
 
@@ -104,6 +113,10 @@ final class SessionViewModel: ObservableObject {
             }
             await MainActor.run {
                 self.isLoading = false
+                if self.pendingReload {
+                    self.pendingReload = false
+                    self.prepareAccessAndLoad()
+                }
             }
         }
     }

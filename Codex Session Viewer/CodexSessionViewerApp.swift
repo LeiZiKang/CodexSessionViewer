@@ -8,7 +8,7 @@
 import SwiftUI
 
 @main
-struct Codex_Session_ViewerApp: App {
+struct CodexSessionViewerApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
