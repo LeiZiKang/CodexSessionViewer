@@ -16,13 +16,17 @@ final class SessionAccessController {
     private struct BookmarkItem {
         let url: URL
         let data: Data
-        var path: String { url.path }
+        var normalizedPath: String { Self.normalize(url).path }
+
+        private static func normalize(_ url: URL) -> URL {
+            url.standardizedFileURL.resolvingSymlinksInPath()
+        }
     }
 
     private let fileManager: FileManager
     private let defaults: UserDefaults
     private let bookmarkKey = "codex.session.viewer.bookmarks"
-    private var startedSecurityScopedURLs: Set<URL> = []
+    private var startedSecurityScopedURLs: [String: URL] = [:]
 
     init(fileManager: FileManager = .default, defaults: UserDefaults = .standard) {
         self.fileManager = fileManager
@@ -30,7 +34,7 @@ final class SessionAccessController {
     }
 
     deinit {
-        for url in startedSecurityScopedURLs {
+        for (_, url) in startedSecurityScopedURLs {
             url.stopAccessingSecurityScopedResource()
         }
     }
@@ -39,15 +43,15 @@ final class SessionAccessController {
         let bookmarkItems = resolveBookmarks(startAccess: true)
         var directories = bookmarkItems.flatMap { collectSessionDirectories(from: $0.url) }
 
-        let homeBase = fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
-        directories.append(contentsOf: collectSessionDirectories(from: homeBase))
+        let defaults = defaultSessionDirectories()
+        directories.append(contentsOf: defaults)
 
         let uniqueDirectories = uniqueURLs(directories)
         if !uniqueDirectories.isEmpty {
             return .ready(uniqueDirectories)
         }
 
-        return .needsPermission(suggested: homeBase)
+        return .needsPermission(suggested: defaultSuggestedFolder())
     }
 
     func storeBookmark(for url: URL) throws {
@@ -55,29 +59,37 @@ final class SessionAccessController {
     }
 
     func storeBookmarks(for urls: [URL]) throws {
-        let sanitized = urls.map { $0.standardizedFileURL }
-        guard !sanitized.isEmpty else { return }
+        guard !urls.isEmpty else { return }
 
-        var existing = resolveBookmarks(startAccess: true)
-        var existingPaths = Set(existing.map { $0.path })
+        let existing = resolveBookmarks(startAccess: true)
+        var existingPaths = Set(existing.map { $0.normalizedPath })
         var bookmarkDatas = existing.map { $0.data }
 
-        for url in sanitized {
-            let path = url.path
-            if existingPaths.contains(path) {
-                startAccessingSecurityScope(for: url)
+        for originalURL in urls {
+            let normalizedPath = normalize(originalURL).path
+            if existingPaths.contains(normalizedPath) {
+                startAccessingSecurityScope(for: originalURL)
                 continue
             }
-            let data = try url.bookmarkData(options: [.withSecurityScope],
-                                            includingResourceValuesForKeys: nil,
-                                            relativeTo: nil)
+            startAccessingSecurityScope(for: originalURL)
+            let data = try originalURL.bookmarkData(options: [.withSecurityScope],
+                                                    includingResourceValuesForKeys: nil,
+                                                    relativeTo: nil)
             bookmarkDatas.append(data)
-            existingPaths.insert(path)
-            startAccessingSecurityScope(for: url)
+            existingPaths.insert(normalizedPath)
         }
 
         defaults.set(bookmarkDatas, forKey: bookmarkKey)
         defaults.synchronize()
+    }
+
+    func defaultSuggestedFolder() -> URL {
+        let base = codexBaseDirectory()
+        let sessions = base.appendingPathComponent("sessions", isDirectory: true)
+        if isReadableDirectory(at: sessions) || fileManager.fileExists(atPath: sessions.path) {
+            return sessions
+        }
+        return base.appendingPathComponent("session", isDirectory: true)
     }
 
     // MARK: - Helpers
@@ -99,9 +111,9 @@ final class SessionAccessController {
                     hasChanges = true
                     continue
                 }
-                let standardized = url.standardizedFileURL
+                let standardized = normalize(url)
                 if startAccess {
-                    startAccessingSecurityScope(for: standardized)
+                    startAccessingSecurityScope(for: url)
                 }
                 resolved.append(BookmarkItem(url: standardized, data: data))
                 updatedDatas.append(data)
@@ -117,26 +129,39 @@ final class SessionAccessController {
         var unique: [BookmarkItem] = []
         var seen = Set<String>()
         for item in resolved {
-            if seen.contains(item.path) { continue }
+            if seen.contains(item.normalizedPath) { continue }
             unique.append(item)
-            seen.insert(item.path)
+            seen.insert(item.normalizedPath)
         }
         return unique
     }
 
-    private func startAccessingSecurityScope(for url: URL) {
-        let standardized = url.standardizedFileURL
-        if startedSecurityScopedURLs.contains(standardized) {
-            return
+    private func defaultSessionDirectories() -> [URL] {
+        let base = codexBaseDirectory()
+        return ["session", "sessions"].compactMap { component in
+            let directory = base.appendingPathComponent(component, isDirectory: true)
+            return isReadableDirectory(at: directory) ? directory : nil
         }
-        if standardized.startAccessingSecurityScopedResource() {
-            startedSecurityScopedURLs.insert(standardized)
+    }
+
+    private func codexBaseDirectory() -> URL {
+        let homePath = NSHomeDirectoryForUser(NSUserName()) ?? NSHomeDirectory()
+        return URL(fileURLWithPath: homePath, isDirectory: true)
+            .appendingPathComponent(".codex", isDirectory: true)
+    }
+
+    private func startAccessingSecurityScope(for url: URL) {
+        let normalized = normalize(url)
+        let key = normalized.path
+        if startedSecurityScopedURLs[key] != nil { return }
+        if url.startAccessingSecurityScopedResource() {
+            startedSecurityScopedURLs[key] = url
         }
     }
 
     private func collectSessionDirectories(from base: URL) -> [URL] {
         var directories: [URL] = []
-        let standardized = base.standardizedFileURL
+        let standardized = normalize(base)
 
         if isReadableDirectory(at: standardized) {
             if standardized.lastPathComponent == "session" || standardized.lastPathComponent == "sessions" {
@@ -169,13 +194,18 @@ final class SessionAccessController {
 
     private func uniqueURLs(_ urls: [URL]) -> [URL] {
         var unique: [URL] = []
-        var seen = Set<URL>()
+        var seen = Set<String>()
         for url in urls {
-            let standardized = url.standardizedFileURL
-            if seen.contains(standardized) { continue }
-            unique.append(standardized)
-            seen.insert(standardized)
+            let normalized = normalize(url)
+            let key = normalized.path
+            if seen.contains(key) { continue }
+            unique.append(normalized)
+            seen.insert(key)
         }
         return unique
+    }
+
+    private func normalize(_ url: URL) -> URL {
+        url.standardizedFileURL.resolvingSymlinksInPath()
     }
 }

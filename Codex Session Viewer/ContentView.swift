@@ -123,12 +123,36 @@ struct ContentView: View {
     }
 
     private var suggestedPath: String {
-        if let url = viewModel.suggestedFolder {
-            return url.path
+        let url = viewModel.suggestedFolder ?? defaultSuggestedFolderURL()
+        return displayPath(for: url)
+    }
+
+    private func defaultSuggestedFolderURL() -> URL {
+        let homePath = NSHomeDirectoryForUser(NSUserName()) ?? NSHomeDirectory()
+        let base = URL(fileURLWithPath: homePath, isDirectory: true)
+            .appendingPathComponent(".codex", isDirectory: true)
+        let sessions = base.appendingPathComponent("sessions", isDirectory: true)
+        if FileManager.default.fileExists(atPath: sessions.path) {
+            return sessions
         }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".codex/session")
-            .path
+        return base.appendingPathComponent("session", isDirectory: true)
+    }
+
+    private func displayPath(for url: URL) -> String {
+        let path = url.path
+        if let home = NSHomeDirectoryForUser(NSUserName()) {
+            if path.hasPrefix(home) {
+                let relative = path.dropFirst(home.count)
+                if relative.isEmpty {
+                    return "~"
+                }
+                if relative.hasPrefix("/") {
+                    return "~" + relative
+                }
+                return "~/" + relative
+            }
+        }
+        return path
     }
 }
 
