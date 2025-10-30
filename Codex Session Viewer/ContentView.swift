@@ -118,6 +118,10 @@ struct ContentView: View {
                 } label: {
                     Label("Add Folder", systemImage: "folder.badge.plus")
                 }
+            Button {
+                buttonReloadTab()
+            } label: {
+                Label("Reload", systemImage: "arrow.trianglehead.clockwise")
             }
         }
     }
@@ -154,6 +158,13 @@ struct ContentView: View {
         }
         return path
     }
+    
+    private func buttonReloadTab() {
+        Task {
+            viewModel.load()
+        }
+    }
+    
 }
 
 #Preview {
