@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct SessionDetailContainer: View {
-    @ObservedObject var viewModel: SessionViewModel
+    @State var viewModel: SessionViewModel
 
     var body: some View {
         if let detail = viewModel.selectedDetail {

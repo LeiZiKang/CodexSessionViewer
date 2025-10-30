@@ -6,24 +6,26 @@
 //
 
 import Foundation
-import Combine
 
 @MainActor
-final class SessionViewModel: ObservableObject {
-    @Published var months: [SessionMonth] = []
-    @Published var selectedMonthID: SessionMonth.ID? {
+@Observable
+final class SessionViewModel {
+    
+    public var months: [SessionMonth] = []
+    public var selectedMonthID: SessionMonth.ID? {
         didSet {
             if selectedMonthID != oldValue {
                 selectedSessionID = nil
             }
         }
     }
-    @Published var selectedSessionID: SessionSummary.ID?
-    @Published var selectedDetail: SessionDetail?
-    @Published var isLoading = false
-    @Published var errorMessage: String?
-    @Published var needsFolderAccess = false
-    @Published var suggestedFolder: URL?
+    
+    public var selectedSessionID: SessionSummary.ID?
+    public var selectedDetail: SessionDetail?
+    public var isLoading = false
+    public var errorMessage: String?
+    public var needsFolderAccess = false
+    public var suggestedFolder: URL?
 
     private let accessController = SessionAccessController()
     private var repository: SessionRepository?

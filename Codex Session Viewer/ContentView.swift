@@ -9,7 +9,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ContentView: View {
-    @StateObject private var viewModel = SessionViewModel()
+    @State private var viewModel = SessionViewModel()
     @State private var isFolderImporterPresented = false
     @State private var searchText = ""
 
