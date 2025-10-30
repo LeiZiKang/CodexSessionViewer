@@ -11,6 +11,7 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @StateObject private var viewModel = SessionViewModel()
     @State private var isFolderImporterPresented = false
+    @State private var searchText = ""
 
     private var sessionsForSelectedMonth: [SessionSummary] {
         guard let id = viewModel.selectedMonthID else { return [] }
@@ -74,6 +75,7 @@ struct ContentView: View {
         .task {
             viewModel.load()
         }
+        
         .onChange(of: viewModel.needsFolderAccess) { needsAccess in
             if needsAccess {
                 isFolderImporterPresented = true
@@ -92,17 +94,20 @@ struct ContentView: View {
             else { return }
             viewModel.selectSession(id: first.id)
         }
+        
         .overlay(alignment: .bottomTrailing) {
             if viewModel.isLoading {
                 ProgressView()
                     .padding()
             }
         }
+        
         .fileImporter(isPresented: $isFolderImporterPresented,
                       allowedContentTypes: [.folder],
                       allowsMultipleSelection: true) { result in
             viewModel.handleFolderImporterResult(result)
         }
+        
         .alert("Unable to load sessions", isPresented: Binding<Bool>(
             get: { viewModel.errorMessage != nil },
             set: { _ in viewModel.errorMessage = nil }
@@ -111,19 +116,18 @@ struct ContentView: View {
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
+        
         .toolbar {
-            if !viewModel.needsFolderAccess {
-                Button {
-                    isFolderImporterPresented = true
-                } label: {
-                    Label("Add Folder", systemImage: "folder.badge.plus")
-                }
+
             Button {
                 buttonReloadTab()
             } label: {
                 Label("Reload", systemImage: "arrow.trianglehead.clockwise")
             }
+            
         }
+        
+        .searchable(text: $searchText, placement: .toolbar, prompt: "Search")
     }
 
     private var suggestedPath: String {
