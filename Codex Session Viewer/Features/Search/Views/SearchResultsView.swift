@@ -116,17 +116,16 @@ private struct SearchResultRow: View {
     }
 
     private var highlightedSnippet: Text {
-        guard let range = result.snippet.range(of: query,
-                                               options: [.caseInsensitive, .diacriticInsensitive]),
-              !query.isEmpty else {
-            return Text(result.snippet)
+        guard !query.isEmpty else { return Text(result.snippet) }
+        var attributed = AttributedString(result.snippet)
+        if let range = attributed.range(of: query,
+                                        options: [.caseInsensitive, .diacriticInsensitive]) {
+            var attributes = AttributeContainer()
+            attributes.font = .system(.body, design: .default).weight(.semibold)
+            attributes.foregroundColor = .accentColor
+            attributed[range].setAttributes(attributes)
         }
-        let prefix = String(result.snippet[..<range.lowerBound])
-        let match = String(result.snippet[range])
-        let suffix = String(result.snippet[range.upperBound...])
-        return Text(prefix) +
-        Text(match).fontWeight(.semibold).foregroundStyle(Color.accentColor) +
-            Text(suffix)
+        return Text(attributed)
     }
 }
 
