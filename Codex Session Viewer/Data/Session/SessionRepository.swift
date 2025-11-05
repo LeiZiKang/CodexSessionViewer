@@ -24,12 +24,13 @@ final class SessionRepository {
     private let monthFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM"
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.timeZone = .current
         return formatter
     }()
     private let displayMonthFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "LLLL yyyy"
+        formatter.timeZone = .current
         return formatter
     }()
     private let displayTimeFormatter: DateFormatter = {
