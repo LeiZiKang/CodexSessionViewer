@@ -12,82 +12,35 @@ struct ContentView: View {
     @State private var viewModel = SessionViewModel()
     @State private var isFolderImporterPresented = false
 
-    private var sessionsForSelectedMonth: [SessionSummary] {
-        guard let id = viewModel.selectedMonthID else { return [] }
-        return viewModel.months.first(where: { $0.id == id })?.sessions ?? []
-    }
-
     var body: some View {
         @Bindable var viewModel = viewModel
         NavigationSplitView(columnVisibility: .constant(.all)) {
-            List(viewModel.months, selection: $viewModel.selectedMonthID) { month in
-                Text(month.displayName)
-                    .tag(month.id)
-            }
-            .navigationTitle("Months")
-            .listStyle(.sidebar)
-            .overlay {
-                if viewModel.needsFolderAccess {
-                    FolderAccessPromptView(
-                        suggestedPath: suggestedPath,
-                        action: { isFolderImporterPresented = true }
-                    )
-                    .padding()
-                }
-            }
+            MonthsSidebarView(
+                months: viewModel.months,
+                selection: $viewModel.selectedMonthID,
+                needsFolderAccess: viewModel.needsFolderAccess,
+                suggestedPath: suggestedPath,
+                requestFolderAccess: presentFolderImporter
+            )
         } content: {
-            if viewModel.needsFolderAccess {
-                FolderAccessPromptView(
-                    suggestedPath: suggestedPath,
-                    action: { isFolderImporterPresented = true }
-                )
-            } else if viewModel.isShowingSearchResults {
-                let searchSelection = Binding<SessionSummary.ID?>(
-                    get: { viewModel.selectedSessionID },
-                    set: { newValue in
-                        guard let newValue else {
-                            viewModel.selectSession(id: nil)
-                            return
-                        }
-                        if let result = viewModel.searchResults.first(where: { $0.summary.id == newValue }) {
-                            viewModel.selectSearchResult(result)
-                        } else {
-                            viewModel.selectSession(id: newValue)
-                        }
-                    }
-                )
-                SearchResultsView(
-                    results: viewModel.searchResults,
-                    isSearching: viewModel.isSearching,
-                    query: viewModel.searchQuery,
-                    selection: searchSelection
-                )
-            } else {
-                let selectionBinding = Binding<SessionSummary.ID?>(
-                    get: { viewModel.selectedSessionID },
-                    set: { newValue in viewModel.selectSession(id: newValue) }
-                )
-                List(sessionsForSelectedMonth, selection: selectionBinding) { session in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(session.title)
-                            .font(.headline)
-                        if let subtitle = session.subtitle {
-                            Text(subtitle)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-                    .tag(session.id)
-                }
-                .navigationTitle("Sessions")
-                .listStyle(.inset)
-            }
+            SessionsNavigationColumn(
+                needsFolderAccess: viewModel.needsFolderAccess,
+                suggestedPath: suggestedPath,
+                isShowingSearchResults: viewModel.isShowingSearchResults,
+                searchResults: viewModel.searchResults,
+                isSearching: viewModel.isSearching,
+                searchQuery: viewModel.searchQuery,
+                selectedSessionID: viewModel.selectedSessionID,
+                sessions: sessionsForSelectedMonth,
+                onSelectSession: { viewModel.selectSession(id: $0) },
+                onSelectSearchResult: { viewModel.selectSearchResult($0) },
+                requestFolderAccess: presentFolderImporter
+            )
         } detail: {
             if viewModel.needsFolderAccess {
                 FolderAccessPromptView(
                     suggestedPath: suggestedPath,
-                    action: { isFolderImporterPresented = true }
+                    action: presentFolderImporter
                 )
             } else {
                 SessionDetailContainer(viewModel: viewModel)
@@ -98,22 +51,10 @@ struct ContentView: View {
         }
         
         .onChange(of: viewModel.needsFolderAccess) { needsAccess in
-            if needsAccess {
-                isFolderImporterPresented = true
-            } else {
-                isFolderImporterPresented = false
-            }
+            handleNeedsFolderAccessChange(needsAccess: needsAccess)
         }
         .onChange(of: viewModel.selectedMonthID) { newValue in
-            guard let id = newValue else {
-                viewModel.selectSession(id: nil)
-                return
-            }
-            guard
-                viewModel.selectedSessionID == nil,
-                let first = viewModel.months.first(where: { $0.id == id })?.sessions.first
-            else { return }
-            viewModel.selectSession(id: first.id)
+            handleMonthSelectionChange(newValue, viewModel: viewModel)
         }
         
         .onChange(of: viewModel.searchQuery) { newValue in
@@ -155,6 +96,11 @@ struct ContentView: View {
         .searchable(text: $viewModel.searchQuery, placement: .toolbar, prompt: "Search sessions")
     }
 
+    private var sessionsForSelectedMonth: [SessionSummary] {
+        guard let id = viewModel.selectedMonthID else { return [] }
+        return viewModel.months.first(where: { $0.id == id })?.sessions ?? []
+    }
+
     private var suggestedPath: String {
         let url = viewModel.suggestedFolder ?? defaultSuggestedFolderURL()
         return displayPath(for: url)
@@ -193,34 +139,29 @@ struct ContentView: View {
             viewModel.load()
         }
     }
+
+    private func presentFolderImporter() {
+        isFolderImporterPresented = true
+    }
+
+    private func handleNeedsFolderAccessChange(needsAccess: Bool) {
+        isFolderImporterPresented = needsAccess
+    }
+
+    private func handleMonthSelectionChange(_ newValue: SessionMonth.ID?, viewModel: SessionViewModel) {
+        guard let id = newValue else {
+            viewModel.selectSession(id: nil)
+            return
+        }
+        guard
+            viewModel.selectedSessionID == nil,
+            let first = viewModel.months.first(where: { $0.id == id })?.sessions.first
+        else { return }
+        viewModel.selectSession(id: first.id)
+    }
     
 }
 
 #Preview {
     ContentView()
-}
-
-private struct FolderAccessPromptView: View {
-    let suggestedPath: String
-    let action: () -> Void
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "folder.badge.questionmark")
-                .font(.largeTitle)
-            Text("Grant Access to Sessions")
-                .font(.headline)
-            Text("Allow the app to read Codex session archives located at \(suggestedPath).")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .textSelection(.enabled)
-            Button("Grant Access") {
-                action()
-            }
-            .buttonStyle(.borderedProminent)
-        }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
 }
