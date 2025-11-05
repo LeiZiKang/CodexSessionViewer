@@ -50,14 +50,14 @@ struct ContentView: View {
             viewModel.load()
         }
         
-        .onChange(of: viewModel.needsFolderAccess) { needsAccess in
-            handleNeedsFolderAccessChange(needsAccess: needsAccess)
+        .onChange(of: viewModel.needsFolderAccess) { oldValue, newValue in
+            handleNeedsFolderAccessChange(needsAccess: newValue)
         }
-        .onChange(of: viewModel.selectedMonthID) { newValue in
+        .onChange(of: viewModel.selectedMonthID) { oldValue, newValue in
             handleMonthSelectionChange(newValue, viewModel: viewModel)
         }
         
-        .onChange(of: viewModel.searchQuery) { newValue in
+        .onChange(of: viewModel.searchQuery) { oldValue, newValue in
             viewModel.updateSearch(query: newValue)
         }
         
