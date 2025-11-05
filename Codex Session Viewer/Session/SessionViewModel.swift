@@ -85,11 +85,17 @@ final class SessionViewModel {
 
         isSearching = true
         let summaries = months.flatMap { $0.sessions }
+        let pendingQuery = trimmed
 
         searchTask = Task { [weak self, repository] in
+            do {
+                try await Task.sleep(nanoseconds: 200_000_000)
+            } catch {
+                return
+            }
             guard let self else { return }
             do {
-                let results = try await self.performSearch(query: trimmed,
+                let results = try await self.performSearch(query: pendingQuery,
                                                            repository: repository,
                                                            summaries: summaries)
                 if Task.isCancelled { return }

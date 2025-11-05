@@ -38,6 +38,19 @@ final class SessionRepository {
         formatter.timeStyle = .short
         return formatter
     }()
+    private let searchCacheLock = NSLock()
+    private var searchCache: [SessionSummary.ID: SearchCacheEntry] = [:]
+
+    private struct SearchCacheEntry {
+        let fields: [SearchField]
+        let modificationDate: Date?
+    }
+
+    private struct SearchField {
+        let title: String
+        let text: String
+        let timestamp: Date?
+    }
 
     init(fileManager: FileManager = .default, directories: [URL]? = nil) {
         self.fileManager = fileManager
@@ -162,39 +175,17 @@ final class SessionRepository {
 
     private func searchSessionFile(summary: SessionSummary,
                                    query: String) throws -> SessionSearchResult? {
-        let lines = try readLines(from: summary.fileURL)
+        let fields = try cachedSearchFields(for: summary)
         let compareOptions: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
 
-        for line in lines {
-            guard let data = line.data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let type = json["type"] as? String else {
-                continue
-            }
-
-            let timestamp = (json["timestamp"] as? String).flatMap { isoFormatter.date(from: $0) }
-
-            if type == "session_meta",
-               let payload = json["payload"] as? [String: Any],
-               let instructions = payload["instructions"] as? String,
-               let range = instructions.range(of: query, options: compareOptions) {
-                let snippet = makeSnippet(from: instructions, matchRange: range)
+        for field in fields {
+            if let range = field.text.range(of: query, options: compareOptions) {
+                let snippet = makeSnippet(from: field.text, matchRange: range)
                 return SessionSearchResult(id: summary.id,
                                            summary: summary,
-                                           matchTitle: "Instructions",
+                                           matchTitle: field.title,
                                            snippet: snippet,
-                                           matchTimestamp: timestamp ?? summary.timestamp)
-            }
-
-            if let event = parseEvent(type: type, json: json, timestamp: timestamp),
-               let text = event.text,
-               let range = text.range(of: query, options: compareOptions) {
-                let snippet = makeSnippet(from: text, matchRange: range)
-                return SessionSearchResult(id: summary.id,
-                                           summary: summary,
-                                           matchTitle: event.title,
-                                           snippet: snippet,
-                                           matchTimestamp: event.timestamp ?? timestamp ?? summary.timestamp)
+                                           matchTimestamp: field.timestamp ?? summary.timestamp)
             }
         }
         return nil
@@ -351,6 +342,73 @@ final class SessionRepository {
         case .event: return "Event"
         case .other(let value): return value.capitalized
         }
+    }
+
+    private func cachedSearchFields(for summary: SessionSummary) throws -> [SearchField] {
+        let modificationDate = try? summary.fileURL
+            .resourceValues(forKeys: [.contentModificationDateKey])
+            .contentModificationDate
+
+        searchCacheLock.lock()
+        if let cached = searchCache[summary.id],
+           cached.modificationDate == modificationDate {
+            let fields = cached.fields
+            searchCacheLock.unlock()
+            return fields
+        }
+        searchCacheLock.unlock()
+
+        let fields = try buildSearchFields(for: summary)
+        let entry = SearchCacheEntry(fields: fields, modificationDate: modificationDate)
+
+        searchCacheLock.lock()
+        searchCache[summary.id] = entry
+        searchCacheLock.unlock()
+        return fields
+    }
+
+    private func buildSearchFields(for summary: SessionSummary) throws -> [SearchField] {
+        let lines = try readLines(from: summary.fileURL)
+        var fields: [SearchField] = []
+        var instructionsText: String?
+        var instructionsTimestamp: Date?
+
+        for line in lines {
+            guard let data = line.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let type = json["type"] as? String else {
+                continue
+            }
+
+            let timestamp = (json["timestamp"] as? String).flatMap { isoFormatter.date(from: $0) }
+
+            if type == "session_meta",
+               let payload = json["payload"] as? [String: Any],
+               let instructions = payload["instructions"] as? String,
+               !instructions.isEmpty {
+                instructionsText = instructions
+                instructionsTimestamp = timestamp
+                continue
+            }
+
+            if let event = parseEvent(type: type, json: json, timestamp: timestamp),
+               let text = event.text,
+               !text.isEmpty {
+                let field = SearchField(title: event.title,
+                                        text: text,
+                                        timestamp: event.timestamp ?? timestamp)
+                fields.append(field)
+            }
+        }
+
+        if let instructionsText {
+            let field = SearchField(title: "Instructions",
+                                    text: instructionsText,
+                                    timestamp: instructionsTimestamp)
+            fields.insert(field, at: 0)
+        }
+
+        return fields
     }
 
     private func makeSnippet(from text: String,
