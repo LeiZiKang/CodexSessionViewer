@@ -11,7 +11,6 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @State private var viewModel = SessionViewModel()
     @State private var isFolderImporterPresented = false
-    @State private var searchText = ""
 
     private var sessionsForSelectedMonth: [SessionSummary] {
         guard let id = viewModel.selectedMonthID else { return [] }
@@ -19,6 +18,7 @@ struct ContentView: View {
     }
 
     var body: some View {
+        @Bindable var viewModel = viewModel
         NavigationSplitView(columnVisibility: .constant(.all)) {
             List(viewModel.months, selection: $viewModel.selectedMonthID) { month in
                 Text(month.displayName)
@@ -40,6 +40,27 @@ struct ContentView: View {
                 FolderAccessPromptView(
                     suggestedPath: suggestedPath,
                     action: { isFolderImporterPresented = true }
+                )
+            } else if viewModel.isShowingSearchResults {
+                let searchSelection = Binding<SessionSummary.ID?>(
+                    get: { viewModel.selectedSessionID },
+                    set: { newValue in
+                        guard let newValue else {
+                            viewModel.selectSession(id: nil)
+                            return
+                        }
+                        if let result = viewModel.searchResults.first(where: { $0.summary.id == newValue }) {
+                            viewModel.selectSearchResult(result)
+                        } else {
+                            viewModel.selectSession(id: newValue)
+                        }
+                    }
+                )
+                SearchResultsView(
+                    results: viewModel.searchResults,
+                    isSearching: viewModel.isSearching,
+                    query: viewModel.searchQuery,
+                    selection: searchSelection
                 )
             } else {
                 let selectionBinding = Binding<SessionSummary.ID?>(
@@ -95,6 +116,10 @@ struct ContentView: View {
             viewModel.selectSession(id: first.id)
         }
         
+        .onChange(of: viewModel.searchQuery) { newValue in
+            viewModel.updateSearch(query: newValue)
+        }
+        
         .overlay(alignment: .bottomTrailing) {
             if viewModel.isLoading {
                 ProgressView()
@@ -127,7 +152,7 @@ struct ContentView: View {
             
         }
         
-        .searchable(text: $searchText, placement: .toolbar, prompt: "Search")
+        .searchable(text: $viewModel.searchQuery, placement: .toolbar, prompt: "Search sessions")
     }
 
     private var suggestedPath: String {

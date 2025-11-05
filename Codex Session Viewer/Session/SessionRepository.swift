@@ -93,6 +93,40 @@ final class SessionRepository {
         return SessionDetail(summary: summary, metadata: metadata, events: events)
     }
 
+    func searchSessions(query: String,
+                        in summaries: [SessionSummary]? = nil,
+                        maxResults: Int = 50) throws -> [SessionSearchResult] {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else { return [] }
+
+        let candidates: [SessionSummary]
+        if let provided = summaries, !provided.isEmpty {
+            candidates = provided
+        } else {
+            candidates = try loadSessionSummaries()
+        }
+
+        var results: [SessionSearchResult] = []
+        for summary in candidates {
+            if let result = try searchSessionFile(summary: summary,
+                                                  query: trimmedQuery) {
+                results.append(result)
+                if results.count >= maxResults {
+                    break
+                }
+            }
+        }
+
+        return results.sorted { lhs, rhs in
+            switch (lhs.matchTimestamp, rhs.matchTimestamp) {
+            case let (l?, r?): return l > r
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default: return lhs.summary.timestamp > rhs.summary.timestamp
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     private func loadSessionSummaries() throws -> [SessionSummary] {
@@ -124,6 +158,46 @@ final class SessionRepository {
             }
         }
         return summaries.sorted { $0.timestamp > $1.timestamp }
+    }
+
+    private func searchSessionFile(summary: SessionSummary,
+                                   query: String) throws -> SessionSearchResult? {
+        let lines = try readLines(from: summary.fileURL)
+        let compareOptions: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+
+        for line in lines {
+            guard let data = line.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let type = json["type"] as? String else {
+                continue
+            }
+
+            let timestamp = (json["timestamp"] as? String).flatMap { isoFormatter.date(from: $0) }
+
+            if type == "session_meta",
+               let payload = json["payload"] as? [String: Any],
+               let instructions = payload["instructions"] as? String,
+               let range = instructions.range(of: query, options: compareOptions) {
+                let snippet = makeSnippet(from: instructions, matchRange: range)
+                return SessionSearchResult(id: summary.id,
+                                           summary: summary,
+                                           matchTitle: "Instructions",
+                                           snippet: snippet,
+                                           matchTimestamp: timestamp ?? summary.timestamp)
+            }
+
+            if let event = parseEvent(type: type, json: json, timestamp: timestamp),
+               let text = event.text,
+               let range = text.range(of: query, options: compareOptions) {
+                let snippet = makeSnippet(from: text, matchRange: range)
+                return SessionSearchResult(id: summary.id,
+                                           summary: summary,
+                                           matchTitle: event.title,
+                                           snippet: snippet,
+                                           matchTimestamp: event.timestamp ?? timestamp ?? summary.timestamp)
+            }
+        }
+        return nil
     }
 
     private func parseTimestamp(for url: URL, resourceValues: URLResourceValues) -> Date {
@@ -277,5 +351,42 @@ final class SessionRepository {
         case .event: return "Event"
         case .other(let value): return value.capitalized
         }
+    }
+
+    private func makeSnippet(from text: String,
+                             matchRange: Range<String.Index>,
+                             context: Int = 60) -> String {
+        let start = offset(text: text, from: matchRange.lowerBound, delta: -context)
+        let end = offset(text: text, from: matchRange.upperBound, delta: context)
+        var snippet = String(text[start..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if start > text.startIndex {
+            snippet = "…" + snippet
+        }
+        if end < text.endIndex {
+            snippet += "…"
+        }
+        return snippet
+    }
+
+    private func offset(text: String,
+                        from index: String.Index,
+                        delta: Int) -> String.Index {
+        var current = index
+        var remaining = abs(delta)
+        if delta == 0 { return current }
+
+        if delta > 0 {
+            while remaining > 0, current < text.endIndex {
+                current = text.index(after: current)
+                remaining -= 1
+            }
+        } else {
+            while remaining > 0, current > text.startIndex {
+                current = text.index(before: current)
+                remaining -= 1
+            }
+        }
+        return current
     }
 }

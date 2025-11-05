@@ -27,6 +27,14 @@ struct SessionDetail {
     let events: [SessionEvent]
 }
 
+struct SessionSearchResult: Identifiable {
+    let id: SessionSummary.ID
+    let summary: SessionSummary
+    let matchTitle: String
+    let snippet: String
+    let matchTimestamp: Date?
+}
+
 struct SessionMetadata {
     let sessionID: String?
     let workingDirectory: String?
