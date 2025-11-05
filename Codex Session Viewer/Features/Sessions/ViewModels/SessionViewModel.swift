@@ -226,9 +226,7 @@ final class SessionViewModel {
         }
     }
 
-    deinit {
-        Task { @MainActor in
-            searchTask?.cancel()
-        }
+    @MainActor deinit {
+        searchTask?.cancel()
     }
 }
