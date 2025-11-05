@@ -14,7 +14,7 @@ struct ContentView: View {
 
     var body: some View {
         @Bindable var viewModel = viewModel
-        NavigationSplitView(columnVisibility: .constant(.all)) {
+        NavigationSplitView {
             MonthsSidebarView(
                 months: viewModel.months,
                 selection: $viewModel.selectedMonthID,
