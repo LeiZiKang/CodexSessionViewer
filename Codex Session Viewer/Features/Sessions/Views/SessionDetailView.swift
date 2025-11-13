@@ -51,6 +51,8 @@ struct SessionDetailContainer: View {
 
 private struct SessionDetailView: View {
     let detail: SessionDetail
+    @State private var showScrollToTop = false
+    @State private var scrollPosition: ScrollAnchor? = .top
     private let headerFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .long
@@ -59,18 +61,74 @@ private struct SessionDetailView: View {
     }()
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                sessionHeader
-                if let metadata = detail.metadata {
-                    metadataSection(metadata)
+        ScrollViewReader { proxy in
+            ScrollView {
+                detailStack {
+                    topAnchor()
                 }
-                Divider()
-                eventsSection
+                .scrollTargetLayout()
             }
-            .padding()
+            .scrollPosition(id: $scrollPosition, anchor: .top)
+            .onChange(of: scrollPosition) { _, anchor in
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    let isAtTop = (anchor ?? .top) == .top
+                    showScrollToTop = !isAtTop
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                scrollToTopOverlay(proxy: proxy)
+            }
         }
         .navigationTitle(detail.summary.title)
+    }
+
+    private enum ScrollAnchor: Hashable {
+        case top
+        case header
+        case metaData
+        case eventSections
+    }
+
+    @ViewBuilder
+    private func detailStack<Anchor: View>(@ViewBuilder topAnchor: () -> Anchor) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            topAnchor()
+            sessionHeader
+                .id(ScrollAnchor.header)
+
+            Divider()
+
+            if let metadata = detail.metadata {
+                metadataSection(metadata)
+                    .id(ScrollAnchor.metaData)
+            }
+
+            Divider()
+
+            eventsSection
+                .id(ScrollAnchor.eventSections)
+        }
+        .padding()
+    }
+
+    @ViewBuilder
+    private func topAnchor() -> some View {
+        Color.clear
+            .frame(height: 0)
+            .id(ScrollAnchor.top)
+    }
+
+    @ViewBuilder
+    private func scrollToTopOverlay(proxy: ScrollViewProxy) -> some View {
+        if showScrollToTop {
+            scrollToTopButton {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    proxy.scrollTo(ScrollAnchor.top, anchor: .top)
+                }
+            }
+            .padding()
+            .transition(.opacity.combined(with: .scale))
+        }
     }
 
     private var sessionHeader: some View {
@@ -146,6 +204,17 @@ private struct SessionDetailView: View {
             }
         }
     }
+
+    private func scrollToTopButton(action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+           Label("Scroll to Top", systemImage: "arrowshape.up.circle")
+                .labelStyle(.iconOnly)
+                .font(.title)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+    }
+
 
     private func background(for role: SessionEvent.Role) -> Color {
         switch role {
