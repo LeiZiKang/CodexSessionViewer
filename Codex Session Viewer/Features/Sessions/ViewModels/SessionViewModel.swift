@@ -7,6 +7,27 @@
 
 import Foundation
 
+enum SessionSortOrder: String, CaseIterable, Identifiable {
+    case chronological
+    case updatedAt
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .chronological: return "Default Order"
+        case .updatedAt: return "Updated At"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .chronological: return "clock"
+        case .updatedAt: return "clock.arrow.circlepath"
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class SessionViewModel {
@@ -29,6 +50,7 @@ final class SessionViewModel {
     public var errorMessage: String?
     public var needsFolderAccess = false
     public var suggestedFolder: URL?
+    public var sortOrder: SessionSortOrder = .chronological
     public var isShowingSearchResults: Bool {
         !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -119,6 +141,11 @@ final class SessionViewModel {
             selectedMonthID = month.id
         }
         selectSession(id: result.summary.id)
+    }
+
+    func updateSortOrder(_ order: SessionSortOrder) {
+        guard sortOrder != order else { return }
+        sortOrder = order
     }
 
     func handleFolderImporterResult(_ result: Result<[URL], Error>) {
@@ -228,5 +255,29 @@ final class SessionViewModel {
 
     @MainActor deinit {
         searchTask?.cancel()
+    }
+
+    func sessions(for monthID: SessionMonth.ID?) -> [SessionSummary] {
+        guard let monthID,
+              let month = months.first(where: { $0.id == monthID }) else {
+            return []
+        }
+        return sortSessions(month.sessions)
+    }
+
+    private func sortSessions(_ sessions: [SessionSummary]) -> [SessionSummary] {
+        switch sortOrder {
+        case .chronological:
+            return sessions.sorted { $0.timestamp > $1.timestamp }
+        case .updatedAt:
+            return sessions.sorted { lhs, rhs in
+                let lhsDate = lhs.updatedAt ?? lhs.timestamp
+                let rhsDate = rhs.updatedAt ?? rhs.timestamp
+                if lhsDate == rhsDate {
+                    return lhs.timestamp > rhs.timestamp
+                }
+                return lhsDate > rhsDate
+            }
+        }
     }
 }

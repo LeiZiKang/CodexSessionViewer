@@ -166,6 +166,7 @@ final class SessionRepository {
                 let summary = SessionSummary(id: fileURL.path,
                                              fileURL: fileURL,
                                              timestamp: timestamp,
+                                             updatedAt: resourceValues.contentModificationDate,
                                              title: title,
                                              subtitle: subtitle)
                 summaries.append(summary)

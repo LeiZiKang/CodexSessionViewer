@@ -16,8 +16,10 @@ struct SessionsNavigationColumn: View {
     let searchQuery: String
     let selectedSessionID: SessionSummary.ID?
     let sessions: [SessionSummary]
+    let sortOrder: SessionSortOrder
     let onSelectSession: (SessionSummary.ID?) -> Void
     let onSelectSearchResult: (SessionSearchResult) -> Void
+    let onChangeSortOrder: (SessionSortOrder) -> Void
     let requestFolderAccess: () -> Void
 
     var body: some View {
@@ -42,6 +44,18 @@ struct SessionsNavigationColumn: View {
                 )
                 .navigationTitle("Sessions")
                 .listStyle(.inset)
+                .toolbar {
+                    ToolbarItem(placement: .automatic) {
+                        Picker("Sort", selection: sortOrderBinding) {
+                            ForEach(SessionSortOrder.allCases) { order in
+                                Label(order.title, systemImage: order.systemImage)
+                                    .tag(order)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .help("Change session order")
+                    }
+                }
             }
         }
     }
@@ -62,6 +76,13 @@ struct SessionsNavigationColumn: View {
             }
         )
     }
+
+    private var sortOrderBinding: Binding<SessionSortOrder> {
+        Binding(
+            get: { sortOrder },
+            set: { newValue in onChangeSortOrder(newValue) }
+        )
+    }
 }
 
 private struct SessionListView: View {
@@ -80,6 +101,9 @@ private struct SessionListView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
+                Text(updatedText(for: session))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
             .tag(session.id)
         }
@@ -90,5 +114,10 @@ private struct SessionListView: View {
             get: { selectedSessionID },
             set: { newValue in onSelect(newValue) }
         )
+    }
+
+    private func updatedText(for session: SessionSummary) -> String {
+        let displayDate = session.updatedAt ?? session.timestamp
+        return "Updated \(displayDate.formatted(date: .abbreviated, time: .shortened))"
     }
 }

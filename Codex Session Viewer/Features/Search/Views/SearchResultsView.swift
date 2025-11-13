@@ -133,6 +133,7 @@ private struct SearchResultRow: View {
     let summary = SessionSummary(id: "sample",
                                  fileURL: URL(fileURLWithPath: "/tmp/sample.jsonl"),
                                  timestamp: Date(),
+                                 updatedAt: Date().addingTimeInterval(-3600),
                                  title: "Sample Session",
                                  subtitle: "/Users/example/project")
     let result = SessionSearchResult(id: summary.id,

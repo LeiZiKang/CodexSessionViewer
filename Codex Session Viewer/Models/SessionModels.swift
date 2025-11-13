@@ -17,6 +17,7 @@ struct SessionSummary: Identifiable, Hashable {
     let id: String
     let fileURL: URL
     let timestamp: Date
+    let updatedAt: Date?
     let title: String
     let subtitle: String?
 }

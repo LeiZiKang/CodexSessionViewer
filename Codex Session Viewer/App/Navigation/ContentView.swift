@@ -32,8 +32,10 @@ struct ContentView: View {
                 searchQuery: viewModel.searchQuery,
                 selectedSessionID: viewModel.selectedSessionID,
                 sessions: sessionsForSelectedMonth,
+                sortOrder: viewModel.sortOrder,
                 onSelectSession: { viewModel.selectSession(id: $0) },
                 onSelectSearchResult: { viewModel.selectSearchResult($0) },
+                onChangeSortOrder: { viewModel.updateSortOrder($0) },
                 requestFolderAccess: presentFolderImporter
             )
         } detail: {
@@ -97,8 +99,7 @@ struct ContentView: View {
     }
 
     private var sessionsForSelectedMonth: [SessionSummary] {
-        guard let id = viewModel.selectedMonthID else { return [] }
-        return viewModel.months.first(where: { $0.id == id })?.sessions ?? []
+        viewModel.sessions(for: viewModel.selectedMonthID)
     }
 
     private var suggestedPath: String {
@@ -155,7 +156,7 @@ struct ContentView: View {
         }
         guard
             viewModel.selectedSessionID == nil,
-            let first = viewModel.months.first(where: { $0.id == id })?.sessions.first
+            let first = viewModel.sessions(for: id).first
         else { return }
         viewModel.selectSession(id: first.id)
     }
